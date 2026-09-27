@@ -69,7 +69,19 @@ def logout():
 @app.route("/api/inventory")
 @login_required
 def list_inventory():
-    return jsonify(INVENTORY)
+    q = request.args.get("q", "").lower()
+    min_qty = request.args.get("min_qty", type=int)
+    max_price = request.args.get("max_price", type=float)
+
+    results = INVENTORY
+    if q:
+        results = [i for i in results if q in i["name"].lower()]
+    if min_qty is not None:
+        results = [i for i in results if i["quantity"] >= min_qty]
+    if max_price is not None:
+        results = [i for i in results if i["price"] <= max_price]
+
+    return jsonify(results)
 
 
 @app.route("/api/inventory/<int:item_id>")
