@@ -7,8 +7,21 @@ from flask_login import (
 )
 import bcrypt
 
+import datetime
+
 app = Flask(__name__)
 app.secret_key = "change-me-in-production"
+
+AUDIT_LOG = []
+
+
+def audit(action, detail=""):
+    AUDIT_LOG.append({
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "user": getattr(current_user, "id", "anonymous"),
+        "action": action,
+        "detail": detail,
+    })
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -56,6 +69,7 @@ def login():
         return jsonify({"error": "invalid credentials"}), 401
 
     login_user(User(username, user_record["role"]))
+    audit("login", f"user={username}")
     return jsonify({"message": "logged in", "role": user_record["role"]})
 
 
@@ -108,6 +122,7 @@ def add_item():
         "price": float(data.get("price", 0)),
     }
     INVENTORY.append(item)
+    audit("add_item", f"id={new_id} name={item['name']}")
     return jsonify(item), 201
 
 
@@ -154,7 +169,17 @@ def delete_item(item_id):
         return jsonify({"error": "not found"}), 404
 
     removed = INVENTORY.pop(idx)
+    audit("delete_item", f"id={item_id} name={removed['name']}")
     return jsonify({"deleted": removed})
+
+
+@app.route("/api/audit")
+@login_required
+def get_audit_log():
+    if current_user.role != "admin":
+        return jsonify({"error": "admin required"}), 403
+    limit = request.args.get("limit", 50, type=int)
+    return jsonify(AUDIT_LOG[-limit:])
 
 
 @app.route("/health")
