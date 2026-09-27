@@ -111,6 +111,38 @@ def add_item():
     return jsonify(item), 201
 
 
+@app.route("/api/inventory/bulk", methods=["POST"])
+@login_required
+def bulk_import():
+    if current_user.role != "admin":
+        return jsonify({"error": "admin required"}), 403
+
+    items = request.get_json()
+    if not isinstance(items, list):
+        return jsonify({"error": "expected a JSON array"}), 400
+
+    next_id = max((i["id"] for i in INVENTORY), default=0) + 1
+    added = []
+    errors = []
+    for idx, raw in enumerate(items):
+        name = raw.get("name", "").strip()
+        if not name:
+            errors.append({"index": idx, "error": "name is required"})
+            continue
+        try:
+            qty = int(raw.get("quantity", 0))
+            price = float(raw.get("price", 0))
+        except (ValueError, TypeError):
+            errors.append({"index": idx, "error": "bad quantity or price"})
+            continue
+        item = {"id": next_id, "name": name, "quantity": qty, "price": price}
+        INVENTORY.append(item)
+        added.append(item)
+        next_id += 1
+
+    return jsonify({"added": len(added), "errors": errors, "items": added}), 201
+
+
 @app.route("/api/inventory/<int:item_id>", methods=["DELETE"])
 @login_required
 def delete_item(item_id):
