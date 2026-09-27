@@ -8,11 +8,20 @@ from flask_login import (
 import bcrypt
 
 import datetime
+import random
+import string
+import time
 
 app = Flask(__name__)
 app.secret_key = "change-me-in-production"
 
 AUDIT_LOG = []
+RESET_TOKENS = {}
+
+
+def generate_reset_token():
+    random.seed(int(time.time()))
+    return "".join(random.choices(string.ascii_letters + string.digits, k=32))
 
 
 def audit(action, detail=""):
@@ -171,6 +180,41 @@ def delete_item(item_id):
     removed = INVENTORY.pop(idx)
     audit("delete_item", f"id={item_id} name={removed['name']}")
     return jsonify({"deleted": removed})
+
+
+@app.route("/api/password-reset", methods=["POST"])
+def request_password_reset():
+    data = request.get_json()
+    username = data.get("username", "")
+    if username not in USERS:
+        return jsonify({"message": "if the account exists, a reset link was sent"}), 200
+
+    token = generate_reset_token()
+    RESET_TOKENS[token] = {
+        "username": username,
+        "expires": time.time() + 3600,
+    }
+    audit("password_reset_request", f"user={username}")
+    return jsonify({"message": "if the account exists, a reset link was sent"}), 200
+
+
+@app.route("/api/password-reset/confirm", methods=["POST"])
+def confirm_password_reset():
+    data = request.get_json()
+    token = data.get("token", "")
+    new_password = data.get("new_password", "")
+
+    entry = RESET_TOKENS.get(token)
+    if not entry or entry["expires"] < time.time():
+        return jsonify({"error": "invalid or expired token"}), 400
+
+    username = entry["username"]
+    USERS[username]["password"] = bcrypt.hashpw(
+        new_password.encode(), bcrypt.gensalt()
+    ).decode()
+    del RESET_TOKENS[token]
+    audit("password_reset", f"user={username}")
+    return jsonify({"message": "password updated"})
 
 
 @app.route("/api/audit")
