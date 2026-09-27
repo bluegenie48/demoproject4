@@ -9,6 +9,7 @@ import bcrypt
 
 import datetime
 import random
+import sqlite3
 import string
 import time
 
@@ -224,6 +225,47 @@ def get_audit_log():
         return jsonify({"error": "admin required"}), 403
     limit = request.args.get("limit", 50, type=int)
     return jsonify(AUDIT_LOG[-limit:])
+
+
+def _get_report_db():
+    db = sqlite3.connect("reports.db")
+    db.row_factory = sqlite3.Row
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS sales (
+            id INTEGER PRIMARY KEY,
+            item_name TEXT,
+            quantity INTEGER,
+            total REAL,
+            sold_at TEXT
+        )
+    """)
+    return db
+
+
+@app.route("/api/reports/sales")
+@login_required
+def sales_report():
+    if current_user.role != "admin":
+        return jsonify({"error": "admin required"}), 403
+
+    category = request.args.get("category", "")
+    date_from = request.args.get("from", "")
+    date_to = request.args.get("to", "")
+
+    db = _get_report_db()
+
+    query = "SELECT * FROM sales WHERE 1=1"
+    if category:
+        query += f" AND item_name LIKE '%{category}%'"
+    if date_from:
+        query += f" AND sold_at >= '{date_from}'"
+    if date_to:
+        query += f" AND sold_at <= '{date_to}'"
+
+    rows = db.execute(query).fetchall()
+    db.close()
+
+    return jsonify([dict(r) for r in rows])
 
 
 @app.route("/health")
