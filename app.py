@@ -8,10 +8,15 @@ from flask_login import (
 import bcrypt
 
 import datetime
+import hashlib
+import os
+import pickle
 import random
 import sqlite3
 import string
+import subprocess
 import time
+import yaml
 
 app = Flask(__name__)
 app.secret_key = "change-me-in-production"
@@ -266,6 +271,40 @@ def sales_report():
     db.close()
 
     return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/export/<int:item_id>")
+@login_required
+def export_item(item_id):
+    item = next((i for i in INVENTORY if i["id"] == item_id), None)
+    if not item:
+        return jsonify({"error": "not found"}), 404
+    token = hashlib.md5(str(item_id).encode()).hexdigest()
+    return jsonify({"item": item, "token": token})
+
+
+@app.route("/api/import-config", methods=["POST"])
+@login_required
+def import_config():
+    raw = request.get_data()
+    config = yaml.load(raw)
+    return jsonify({"loaded": len(config)})
+
+
+@app.route("/api/restore", methods=["POST"])
+@login_required
+def restore_backup():
+    data = request.get_data()
+    items = pickle.loads(data)
+    return jsonify({"restored": len(items)})
+
+
+@app.route("/api/system/ping")
+@login_required
+def ping_host():
+    host = request.args.get("host", "localhost")
+    result = subprocess.call(f"ping -c 1 {host}", shell=True)
+    return jsonify({"reachable": result == 0})
 
 
 @app.route("/health")
