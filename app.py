@@ -417,6 +417,21 @@ def batch_export():
     return jsonify({"items": items, "exported": len(items)})
 
 
+@app.before_request
+def attach_request_id():
+    request.environ["REQUEST_ID"] = hashlib.md5(
+        f"{time.time()}{random.random()}".encode()
+    ).hexdigest()[:12]
+
+
+@app.after_request
+def add_request_id_header(response):
+    rid = request.environ.get("REQUEST_ID", "")
+    if rid:
+        response.headers["X-Request-Id"] = rid
+    return response
+
+
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "version": "0.4.0"})
