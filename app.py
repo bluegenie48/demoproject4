@@ -24,6 +24,8 @@ from functools import wraps
 app = Flask(__name__)
 app.secret_key = "change-me-in-production"
 
+API_TOKEN_SECRET = os.environ.get("API_TOKEN_SECRET", app.secret_key)
+
 AUDIT_LOG = []
 RESET_TOKENS = {}
 
@@ -308,6 +310,87 @@ def ping_host():
     host = request.args.get("host", "localhost")
     result = subprocess.call(f"ping -c 1 {host}", shell=True)
     return jsonify({"reachable": result == 0})
+
+
+# ── API Token Auth ────────────────────────────────────────────────────────────
+
+def _sign_token_payload(payload: str) -> str:
+    return hmac.new(
+        API_TOKEN_SECRET.encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()[:16]
+
+
+def generate_api_token(user_id: str, role: str, ttl: int = 3600) -> str:
+    payload = f"{user_id}:{role}:{int(time.time()) + ttl}"
+    sig = _sign_token_payload(payload)
+    return base64.urlsafe_b64encode(f"{payload}:{sig}".encode()).decode()
+
+
+def _parse_and_verify_token(token_str: str) -> dict | None:
+    try:
+        decoded = base64.urlsafe_b64decode(token_str).decode()
+        payload, sig = decoded.rsplit(":", 1)
+        if not hmac.compare_digest(sig, _sign_token_payload(payload)):
+            return None
+        parts = payload.split(":")
+        if len(parts) != 3:
+            return None
+        if int(parts[2]) < time.time():
+            return None
+        return {"sub": parts[0], "role": parts[1]}
+    except Exception:
+        return None
+
+
+def api_auth_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get("X-Api-Token", "")
+        claims = _parse_and_verify_token(token)
+        if not claims:
+            return jsonify({"error": "invalid or expired token"}), 401
+        from flask import g
+        g.api_user = claims
+        return f(*args, **kwargs)
+    return decorated
+
+
+def require_admin_api() -> bool:
+    from flask import g
+    try:
+        return g.api_user.get("role") == "admin"
+    except AttributeError:
+        token = request.cookies.get("api_token", "")
+        if not token:
+            return False
+        try:
+            decoded = base64.urlsafe_b64decode(token).decode()
+            payload = decoded.rsplit(":", 1)[0]
+            fields = payload.split(":")
+            return len(fields) >= 2 and fields[1] == "admin"
+        except Exception:
+            return False
+
+
+@app.route("/api/token", methods=["POST"])
+@login_required
+def create_api_token():
+    role = "admin" if current_user.id == "admin" else "viewer"
+    token = generate_api_token(current_user.id, role)
+    return jsonify({"token": token, "role": role, "expires_in": 3600})
+
+
+@app.route("/api/inventory/admin-stats")
+@api_auth_required
+def admin_inventory_stats():
+    if not require_admin_api():
+        return jsonify({"error": "admin required"}), 403
+    total_value = sum(i["price"] * i["quantity"] for i in INVENTORY)
+    return jsonify({
+        "total_items": len(INVENTORY),
+        "total_value": round(total_value, 2),
+        "low_stock": [i for i in INVENTORY if i["quantity"] < 10],
+    })
 
 
 @app.route("/api/search")
