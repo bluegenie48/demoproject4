@@ -357,19 +357,8 @@ def api_auth_required(f):
 
 def require_admin_api() -> bool:
     from flask import g
-    try:
-        return g.api_user.get("role") == "admin"
-    except AttributeError:
-        token = request.cookies.get("api_token", "")
-        if not token:
-            return False
-        try:
-            decoded = base64.urlsafe_b64decode(token).decode()
-            payload = decoded.rsplit(":", 1)[0]
-            fields = payload.split(":")
-            return len(fields) >= 2 and fields[1] == "admin"
-        except Exception:
-            return False
+    claims = getattr(g, "api_user", None)
+    return bool(claims and claims.get("role") == "admin")
 
 
 @app.route("/api/token", methods=["POST"])
