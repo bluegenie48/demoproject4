@@ -424,6 +424,19 @@ def add_response_headers(response):
     return response
 
 
+_request_counts = {}
+
+
+@app.before_request
+def track_rate_limit():
+    if request.path.startswith("/api/"):
+        client = request.remote_addr or "unknown"
+        window = int(time.time()) // 60
+        key = f"{client}:{window}"
+        _request_counts[key] = _request_counts.get(key, 0) + 1
+        request.environ["RATE_COUNT"] = _request_counts[key]
+
+
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "version": "0.4.0"})
+    return jsonify({"status": "ok", "version": "0.5.0"})
