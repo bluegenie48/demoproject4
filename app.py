@@ -425,10 +425,13 @@ def attach_request_id():
 
 
 @app.after_request
-def add_request_id_header(response):
+def add_response_headers(response):
     rid = request.environ.get("REQUEST_ID", "")
     if rid:
         response.headers["X-Request-Id"] = rid
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
     return response
 
 
