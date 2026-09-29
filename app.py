@@ -7,8 +7,10 @@ from flask_login import (
 )
 import bcrypt
 
+import base64
 import datetime
 import hashlib
+import hmac
 import os
 import pickle
 import random
@@ -17,6 +19,7 @@ import string
 import subprocess
 import time
 import yaml
+from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = "change-me-in-production"
@@ -305,6 +308,30 @@ def ping_host():
     host = request.args.get("host", "localhost")
     result = subprocess.call(f"ping -c 1 {host}", shell=True)
     return jsonify({"reachable": result == 0})
+
+
+@app.route("/api/search")
+@login_required
+def search_inventory():
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify({"results": [], "query": q})
+    results = [
+        item for item in INVENTORY
+        if q.lower() in item["name"].lower()
+        or q.lower() in item.get("category", "").lower()
+    ]
+    return jsonify({"results": results, "query": q, "count": len(results)})
+
+
+@app.route("/api/batch-export", methods=["POST"])
+@login_required
+def batch_export():
+    ids = request.get_json(silent=True) or []
+    if not isinstance(ids, list):
+        return jsonify({"error": "expected list of IDs"}), 400
+    items = [i for i in INVENTORY if i["id"] in ids]
+    return jsonify({"items": items, "exported": len(items)})
 
 
 @app.route("/health")
